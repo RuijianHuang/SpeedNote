@@ -9,6 +9,8 @@ import android.graphics.Paint;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
+import android.widget.EditText;
+import android.widget.LinearLayout;
 
 import java.util.ArrayList;
 
@@ -16,14 +18,15 @@ public class DrawView extends View {
     private static final float TOUCH_TOLERANCE = 4;
     private float lastX, lastY;
     private Path path;
-    private Paint paint;  // contains color/style info about how to draw geometries, text, bitmaps
-    private ArrayList<Stroke> strokes;
+    private Paint paint;
+    private ArrayList<Object> noteObjects;
     private int currPaintColor;
     private int currStrokeWidth;
     private int currBgColor;
     private Bitmap bitmap;
-    private Canvas canvas;
-    private Paint mBitmapPaint;    // FIXME: what is this?
+    private Canvas _canvas;
+    private Paint mBitmapPaint;     // FIXME: what is this?
+    private LinearLayout drawViewLayout;
 
     public DrawView(Context context) {
         this(context, null);
@@ -31,7 +34,8 @@ public class DrawView extends View {
 
     public DrawView(Context context, AttributeSet attrs) {
         super(context, attrs);
-        strokes = new ArrayList<>();
+        drawViewLayout = new LinearLayout(this.getContext());
+        noteObjects = new ArrayList<>();
         paint = new Paint();
         paint.setAntiAlias(true);
         paint.setDither(true);
@@ -40,12 +44,17 @@ public class DrawView extends View {
         paint.setStrokeJoin(Paint.Join.ROUND);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setAlpha(0xff);                   // FIXME: what is this?
+
+        // FIXME: testing textBoxes
+        for (int i = 1; i <= 3; i++) {
+            drawViewLayout.addView(createEditText(i*50, i*50, 36, "test test"));
+        }
     }
 
     // init bitmap, canvas, and attributes
     public void init(int height, int width) {
         bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        canvas = new Canvas(bitmap);
+        _canvas = new Canvas(bitmap);
         mBitmapPaint = new Paint(Paint.DITHER_FLAG);
 
         currPaintColor = Color.BLACK;
@@ -54,40 +63,43 @@ public class DrawView extends View {
     }
 
     public void undo() {
-        if (strokes.size() != 0) {         // TODO: handle "nothing-to-undo" case, dim the undo button?
-            strokes.remove(strokes.size() - 1);
+        if (noteObjects.size() != 0) {      // TODO: nothing-to-do case: dim the undo btn?
+            noteObjects.remove(noteObjects.size() - 1);
             invalidate();
         }
     }
 
-    // actual drawing
-    // FIXME: canvas vs. inCanvas?
+    // Actual drawing
     @Override
-    protected void onDraw(Canvas inCanvas) {
-        // save the curr state of canvas to draw background of canvas
-        inCanvas.save();
+    protected void onDraw(Canvas uiCanvas) {
+        super.onDraw(uiCanvas);
+        uiCanvas.drawColor(currBgColor);
 
-        // now redraw
-        canvas.drawColor(currBgColor);
-        for (Stroke stroke: strokes) {
-            paint.setColor(stroke.color);
-            paint.setStrokeWidth(stroke.strokeWidth);
-            canvas.drawPath(stroke.path, paint);
+        for (Object object: noteObjects) {
+            if (object instanceof Stroke) {
+                paint.setColor(((Stroke) object).color);
+                paint.setStrokeWidth(((Stroke) object).strokeWidth);
+                uiCanvas.drawPath(((Stroke) object).path, paint);
+            }
         }
-        inCanvas.drawBitmap(bitmap, 0, 0, mBitmapPaint);        // FIXME: what does this do?
-        inCanvas.restore();
+
+        // FIXME: examine code below
+        drawViewLayout.measure(uiCanvas.getWidth(), uiCanvas.getHeight());
+        drawViewLayout.layout(50, 50, uiCanvas.getWidth(), uiCanvas.getHeight());
+        drawViewLayout.draw(uiCanvas);
     }
 
-    // methods that manage the touch response
+
+
+    // Below are methods that manage touch response:
+
     // first, create a new Stroke and add it to strokes list
     private void touchStart(float x, float y) {
         path = new Path();
-        strokes.add(new Stroke(currPaintColor, currStrokeWidth, path));
+        noteObjects.add(new Stroke(currPaintColor, currStrokeWidth, path));
 
-        // remove any curve or line from the path   FIXME: why?
-        path.reset();
-        // sets the start point og the line being drawn
-        path.moveTo(x, y);
+        path.reset();                   // remove any curve or line from the path
+        path.moveTo(x, y);              // sets the start point og the line being drawn
 
         // record curr coordinates
         lastX = x;
@@ -126,6 +138,7 @@ public class DrawView extends View {
             case MotionEvent.ACTION_MOVE:
                 touchMove(x, y);
                 invalidate();
+                break;
             case MotionEvent.ACTION_UP:
                 touchUp();
                 invalidate();
@@ -134,7 +147,7 @@ public class DrawView extends View {
         return true;                        // FIXME: well?
     }
 
-    // getters and setters
+    // Below are getters and setters
     public Bitmap getBitmap() {     // FIXME: save?
         return this.bitmap;
     }
@@ -149,5 +162,28 @@ public class DrawView extends View {
 
     public void setCurrStrokeWidth(int strokeWidth) {
         this.currStrokeWidth = strokeWidth;
+    }
+
+    // EditText initializers
+    private EditText createEditText(float x, float y, float textSize, String text) {
+        return createEditText(x, y, 200, 300, 0,
+                textSize, Color.BLUE, text);
+    }
+
+    // TODO: add border
+    private EditText createEditText(float x, float y, int height, int width, float rotation,
+                                    float textSize, int textColor, String text) {
+        EditText ed = new EditText(this.getContext());
+        ed.setVisibility(View.VISIBLE);
+        ed.setBackgroundColor(Color.TRANSPARENT);
+        ed.setX(x);
+        ed.setY(y);
+        ed.setHeight(height);
+        ed.setWidth(width);
+        ed.setRotation(rotation);
+        ed.setTextSize(textSize);
+        ed.setTextColor(textColor);
+        ed.setText(text);
+        return ed;
     }
 }
