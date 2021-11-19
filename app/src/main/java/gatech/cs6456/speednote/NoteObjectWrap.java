@@ -23,8 +23,8 @@ public class NoteObjectWrap {
         if (noteObj instanceof Stroke) {
             ((Stroke) noteObj).path.offset(dx, dy);
         } else {
-            ((EditText) noteObj).offsetLeftAndRight((int) dx);
-            ((EditText) noteObj).offsetTopAndBottom((int) dy);
+            ((EditText) noteObj).setX(((EditText) noteObj).getX()+dx);
+            ((EditText) noteObj).setY(((EditText) noteObj).getY()+dy);
         }
     }
 

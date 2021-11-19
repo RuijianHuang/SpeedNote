@@ -12,28 +12,30 @@ import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.EditText;
-import android.widget.LinearLayout;
+import android.widget.RelativeLayout;
 
 import androidx.annotation.RequiresApi;
 
 import java.util.ArrayList;
 
 public class DrawView extends View {
+    private static final String LOG_TAG = "RICHIE";  // FIXME: debug logcat tag
     private static final float TOUCH_TOLERANCE = 4;
     private static final double TAP_WINDOW = 200;
-    private static final String LOG_TAG = "RICHIE";  // FIXME: debug logcat tag
+    private static final int TAP_MOVE_DISTANCE_TOLERANCE = 10;
+    private static final int TAP_COORDINATE_CALIBRATION = 15;
 
+    private final ArrayList<NoteObjectWrap> noteObjects;
     private float lastX, lastY;
     private Path path;
     private final Paint paint;
-    private final ArrayList<NoteObjectWrap> noteObjects;
     private int currPaintColor;
     private int currStrokeWidth;
     private int currBgColor;
     private Bitmap bitmap;
     private Canvas _canvas;
     private Paint mBitmapPaint;     // FIXME: what is this?
-    private final LinearLayout drawViewLayout;
+    private final RelativeLayout drawViewRelativeLayout;
 
     public DrawView(Context context) {
         this(context, null);
@@ -41,7 +43,7 @@ public class DrawView extends View {
 
     public DrawView(Context context, AttributeSet attrs) {
         super(context, attrs);
-        drawViewLayout = new LinearLayout(this.getContext());
+        drawViewRelativeLayout = new RelativeLayout(this.getContext());
         noteObjects = new ArrayList<>();
         paint = new Paint();
         paint.setAntiAlias(true);
@@ -51,11 +53,6 @@ public class DrawView extends View {
         paint.setStrokeJoin(Paint.Join.ROUND);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setAlpha(0xff);                   // FIXME: what is this?
-
-        // FIXME: testing textBoxes
-        for (int i = 1; i <= 3; i++) {
-            drawViewLayout.addView(createEditText(i*50, i*50, 36, "test test"));
-        }
     }
 
     // init bitmap, canvas, and attributes
@@ -71,8 +68,11 @@ public class DrawView extends View {
 
     // FIXME: adapt undo for more operations?
     public void undo() {
+        NoteObjectWrap removed;
         if (noteObjects.size() != 0) {      // TODO: nothing-to-do case: dim the undo btn?
-            noteObjects.remove(noteObjects.size() - 1);
+            removed = noteObjects.remove(noteObjects.size() - 1);
+            if (removed.getNoteObj() instanceof EditText)
+                drawViewRelativeLayout.removeView((EditText) removed.getNoteObj());
             invalidate();
         }
     }
@@ -92,18 +92,17 @@ public class DrawView extends View {
             }
         }
 
-        // FIXME: examine code below
-        drawViewLayout.measure(uiCanvas.getWidth(), uiCanvas.getHeight());
-        drawViewLayout.layout(50, 50, uiCanvas.getWidth(), uiCanvas.getHeight());
-        drawViewLayout.draw(uiCanvas);
+        // FIXME: code needed for updating changes of EditText
+        drawViewRelativeLayout.measure(uiCanvas.getWidth(), uiCanvas.getHeight());
+        drawViewRelativeLayout.layout(50, 50, uiCanvas.getWidth(), uiCanvas.getHeight());
+        drawViewRelativeLayout.draw(uiCanvas);
     }
-
 
     // The 'active pointer' is the one that drags the selected
     private int activePtrID = MotionEvent.INVALID_POINTER_ID;
 
     // Where the position of 'active pointer' is in the last event
-    private float lastActivePtrX, lastActivePtrY;
+    private float lastActivePtrX, lastActivePtrY, downActivePtrX, downActivePtrY;
 
     // Flags for ACTION_MOVE, ACTION_UP to decide how to act
     private boolean isDragging = false;
@@ -114,6 +113,9 @@ public class DrawView extends View {
 
     // Index of the note object in noteObjects that contains the pointer
     private int containingObjIndex = -1;
+
+    // Time of last 'tap event'
+    private long lastTapUpTime = 0;
 
     // touch event dispatcher
     @RequiresApi(api = Build.VERSION_CODES.O)
@@ -144,12 +146,14 @@ public class DrawView extends View {
         //      if tap on white space, deselect all
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                downActivePtrX = x;
+                downActivePtrY = y;
                 if (isWithin(x, y, true)) {
                     touchDownType = TOUCH_DOWN_TYPE.SELECTED;
-                    dragStart(x, y, ptrId);
+                    dragStart(ptrId);
                 } else if (isWithin(x, y, false)) {
                     touchDownType = TOUCH_DOWN_TYPE.UNSELECTED;
-                    dragStart(x, y, ptrId);
+                    dragStart(ptrId);
                     toDragAnUnselected = true;
                 } else {
                     touchDownType = TOUCH_DOWN_TYPE.WHITESPACE;
@@ -165,10 +169,12 @@ public class DrawView extends View {
                 break;
             case MotionEvent.ACTION_POINTER_UP:
                 break;
-            case MotionEvent.ACTION_UP:             // ACTION_UP falls through to teardown in CANCEL
+            case MotionEvent.ACTION_UP:  // ACTION_UP falls through to teardown in CANCEL
                 final long duration = event.getEventTime() - event.getDownTime();
-                if (duration <= TAP_WINDOW)
-                    handleTap();
+                final double distanceMoved = distanceBtw(x, y, downActivePtrX, downActivePtrY);
+                if (duration <= TAP_WINDOW &&
+                    distanceMoved <= TAP_MOVE_DISTANCE_TOLERANCE)
+                    handleTap(event);
             case MotionEvent.ACTION_CANCEL:
                 teardown();
                 break;
@@ -182,37 +188,49 @@ public class DrawView extends View {
         if (isDragging)
             dragEnd();
     }
-    private void handleTap() {
-        switch (touchDownType) {
-            case UNSELECTED:                // select the unselected
-                deselectAll();
-                select(containingObjIndex);
-                break;
-            case SELECTED:                  // deselected the selected
-                deselect(containingObjIndex);
-                break;
-            case WHITESPACE:
-                deselectAll();
-                break;
-            case UNDEFINED:
-                throw new IllegalArgumentException("UNDEFINED touchDownType in handleTap");
+
+    private void handleTap(MotionEvent event) {
+        // Double tap:
+        //      new EditText at contact pt
+        //      switch to select new EditText TODO: switch to input mode?
+        if (event.getDownTime() - lastTapUpTime <= TAP_WINDOW) {
+            addEditText(event.getX(), event.getY(), 36, "NEW");
+            deselectAll();
+            select(noteObjects.size()-1);
+            lastTapUpTime = 0;                  // reset for next double tap
+        }
+
+        // Single tap: select/deselect
+        else {
+            switch (touchDownType) {
+                case UNSELECTED:                // select the unselected
+                    deselectAll();
+                    select(containingObjIndex);
+                    break;
+                case SELECTED:                  // deselected the selected
+                    deselect(containingObjIndex);
+                    break;
+                case WHITESPACE:
+                    deselectAll();
+                    break;
+                case UNDEFINED:
+                    throw new IllegalArgumentException("UNDEFINED touchDownType in handleTap");
+            }
+            lastTapUpTime = event.getEventTime();
         }
 
         // FIXME: debugging
-        int numSelected = 0;
-        for (NoteObjectWrap n: noteObjects)
-            if (n.isSelected())
-                numSelected++;
-        Log.d(LOG_TAG, "number of objects selected = " + numSelected);
+        Log.d(LOG_TAG, "handleTap(): number of objects selected = " +
+                getSizeOfNoteObjects() + " after tap");
     }
 
     //  1st touch down within one of the objects:
     //  Record where the ptr started
     //  Record as "active pointer" (primary ptr)
-    private void dragStart(final float x, final float y, final int ptrId) {
+    private void dragStart(final int ptrId) {
         isDragging = true;
-        lastActivePtrX = x;
-        lastActivePtrY = y;
+        lastActivePtrX = downActivePtrX;
+        lastActivePtrY = downActivePtrY;
         activePtrID = ptrId;
     }
 
@@ -227,11 +245,9 @@ public class DrawView extends View {
             deselectAll();
             select(containingObjIndex);
         }
-
         for (NoteObjectWrap objWrap: noteObjects)
             if (objWrap.isSelected())
                 objWrap.moveBy(dx, dy);
-
         invalidate();
         lastActivePtrX = currActivePtrX;
         lastActivePtrY = currActivePtrY;
@@ -242,36 +258,20 @@ public class DrawView extends View {
         isDragging = false;
     }
 
-    // Pointer position checker
-    // If the point is within an note object of the specified type (selected or not)
-    // containingObjIndex will be set to the index of the object in noteObjects
-    @RequiresApi(api = Build.VERSION_CODES.O)
-    private boolean isWithin(final float x, final float y, boolean isSelectedList) {
-        for (NoteObjectWrap objWrap: noteObjects) {
-            if (isSelectedList != objWrap.isSelected())
-                continue;
-            if (objWrap.isWithin(x, y)) {
-                containingObjIndex = noteObjects.indexOf(objWrap);
-                return true;
-            }
-        }
-        return false;
-    }
-
     private void select(final int index) {
-        noteObjects.get(containingObjIndex).setSelected(true);
+        noteObjects.get(index).setSelected(true);
     }
 
     private void deselect(final int index) {
-        noteObjects.get(containingObjIndex).setSelected(false);
+        noteObjects.get(index).setSelected(false);
     }
 
     // Private helper to deselect all by unsetting 'isSelected' flags
     private void deselectAll() {
         for (NoteObjectWrap objWrap: noteObjects)
-            objWrap.setSelected(false);
+            if (objWrap.isSelected())
+                objWrap.setSelected(false);
     }
-
 
 
     // Single stylus drawing helper methods
@@ -296,9 +296,7 @@ public class DrawView extends View {
     // first, create a new Stroke and add it to strokes list
     private void drawStart(float x, float y) {
         path = new Path();
-        noteObjects.add(new NoteObjectWrap(
-                new Stroke(currPaintColor, currStrokeWidth, path)
-        ));
+        addStroke(new Stroke(currPaintColor, currStrokeWidth, path));
 
         path.reset();                   // remove any curve or line from the path
         path.moveTo(x, y);              // sets the start point og the line being drawn
@@ -326,27 +324,73 @@ public class DrawView extends View {
         path.lineTo(lastX, lastY);
     }
 
-    // EditText initializers
-    private EditText createEditText(float x, float y, float textSize, String text) {
-        return createEditText(x, y, 200, 300, 0,
-                textSize, Color.BLUE, text);
+
+    // Private helper to add Stroke to list
+    private void addStroke(Stroke stroke) {
+        noteObjects.add(new NoteObjectWrap(stroke));
     }
 
-    // TODO: add border
-    private EditText createEditText(float x, float y, int height, int width, float rotation,
-                                    float textSize, int textColor, String text) {
+    // Private helper to add EditText to list
+    private void addEditText(final float x,
+                             final float y,
+                             final float textSize,
+                             final String text) {
+        addEditText(x, y, 200, 300, 0, textSize, Color.BLACK, text);
+    }
+
+    private void addEditText(final float x,
+                             final float y,
+                             final int height,
+                             final int width,
+                             final float rotation,
+                             final float textSize,
+                             final int textColor,
+                             final String text) {
         EditText ed = new EditText(this.getContext());
+        ed.setLayoutParams(new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.MATCH_PARENT,
+                RelativeLayout.LayoutParams.MATCH_PARENT
+        ));
         ed.setVisibility(View.VISIBLE);
         ed.setBackgroundColor(Color.TRANSPARENT);
-        ed.setX(x);
-        ed.setY(y);
+        ed.setX(x - TAP_COORDINATE_CALIBRATION);
+        ed.setY(y - TAP_COORDINATE_CALIBRATION);
         ed.setHeight(height);
         ed.setWidth(width);
         ed.setRotation(rotation);
         ed.setTextSize(textSize);
         ed.setTextColor(textColor);
         ed.setText(text);
-        return ed;
+
+        noteObjects.add(new NoteObjectWrap(ed));
+        drawViewRelativeLayout.addView(
+                (EditText) noteObjects.get(noteObjects.size()-1).getNoteObj()
+        );
+        invalidate();
+    }
+
+    // Pointer position checker
+    // If the point is within an note object of the specified type (selected or not)
+    // containingObjIndex will be set to the index of the object in noteObjects
+    // FIXME:
+    //  if isWithin() is only used in ACTION_DOWN, then x y args can be removed,
+    //  use downActivePtrX/downActivePtrY instead
+    @RequiresApi(api = Build.VERSION_CODES.O)
+    private boolean isWithin(final float x, final float y, boolean isSelectedList) {
+        for (NoteObjectWrap objWrap: noteObjects) {
+            if (isSelectedList != objWrap.isSelected())
+                continue;
+            if (objWrap.isWithin(x, y)) {
+                containingObjIndex = noteObjects.indexOf(objWrap);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private double distanceBtw(final float x1, final float y1,
+                               final float x2, final float y2) {
+        return Math.sqrt(Math.pow(x1-x2, 2) + Math.pow(y1-y2, 2));
     }
 
     // Below are getters and setters
@@ -364,6 +408,15 @@ public class DrawView extends View {
 
     public void setCurrStrokeWidth(int strokeWidth) {
         this.currStrokeWidth = strokeWidth;
+    }
+
+    // Private debug helpers
+    private int getSizeOfNoteObjects() {
+        int numSelected = 0;
+        for (NoteObjectWrap n: noteObjects)
+            if (n.isSelected())
+                numSelected++;
+        return numSelected;
     }
 }
 
