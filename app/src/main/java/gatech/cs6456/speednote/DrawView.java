@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.Path;
 import android.graphics.Paint;
 import android.os.Build;
@@ -26,6 +27,7 @@ public class DrawView extends View {
     private static final int TAP_COORDINATE_CALIBRATION = 15;
 
     private final ArrayList<NoteObjectWrap> noteObjects;
+    private final ArrayList<PointerDescriptor> gesturePointers;
     private float lastX, lastY;
     private Path path;
     private final Paint paint;
@@ -36,15 +38,19 @@ public class DrawView extends View {
     private Canvas _canvas;
     private Paint mBitmapPaint;     // FIXME: what is this?
     private final RelativeLayout drawViewRelativeLayout;
+    private final DrawView drawViewRef;                     // FIXME: used in panning sample code, useful?
+    private final Matrix mMatrix;
 
     public DrawView(Context context) {
         this(context, null);
     }
-
     public DrawView(Context context, AttributeSet attrs) {
         super(context, attrs);
+        drawViewRef = this;
         drawViewRelativeLayout = new RelativeLayout(this.getContext());
+        mMatrix = new Matrix();
         noteObjects = new ArrayList<>();
+        gesturePointers = new ArrayList<>();
         paint = new Paint();
         paint.setAntiAlias(true);
         paint.setDither(true);
@@ -52,7 +58,7 @@ public class DrawView extends View {
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeJoin(Paint.Join.ROUND);
         paint.setStrokeCap(Paint.Cap.ROUND);
-        paint.setAlpha(0xff);                   // FIXME: what is this?
+        paint.setAlpha(0xff);
     }
 
     // init bitmap, canvas, and attributes
@@ -81,6 +87,9 @@ public class DrawView extends View {
     @Override
     protected void onDraw(Canvas uiCanvas) {
         super.onDraw(uiCanvas);
+        uiCanvas.save();
+        uiCanvas.concat(mMatrix);
+
         uiCanvas.drawColor(currBgColor);
 
         for (NoteObjectWrap objWrap: noteObjects) {
@@ -96,17 +105,13 @@ public class DrawView extends View {
         drawViewRelativeLayout.measure(uiCanvas.getWidth(), uiCanvas.getHeight());
         drawViewRelativeLayout.layout(50, 50, uiCanvas.getWidth(), uiCanvas.getHeight());
         drawViewRelativeLayout.draw(uiCanvas);
+
+        uiCanvas.restore();
     }
 
-    // The 'active pointer' is the one that drags the selected
-    private int activePtrID = MotionEvent.INVALID_POINTER_ID;
-
-    // Where the position of 'active pointer' is in the last event
-    private float lastActivePtrX, lastActivePtrY, downActivePtrX, downActivePtrY;
 
     // Flags for ACTION_MOVE, ACTION_UP to decide how to act
     private boolean isDragging = false;
-    private TOUCH_DOWN_TYPE touchDownType = TOUCH_DOWN_TYPE.UNDEFINED;
 
     // Flag to specify whether the object to drag is one of the selected
     private boolean toDragAnUnselected = false;
@@ -144,35 +149,39 @@ public class DrawView extends View {
         //      if tap one of the not-selected, select that one
         //      if tap one of the selected, deselect that one
         //      if tap on white space, deselect all
+        updateGesturePointers(event);
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                downActivePtrX = x;
-                downActivePtrY = y;
+                TouchDownType touchDownType;
                 if (isWithin(x, y, true)) {
-                    touchDownType = TOUCH_DOWN_TYPE.SELECTED;
+                    touchDownType = TouchDownType.SELECTED;
                     dragStart(ptrId);
                 } else if (isWithin(x, y, false)) {
-                    touchDownType = TOUCH_DOWN_TYPE.UNSELECTED;
+                    touchDownType = TouchDownType.UNSELECTED;
                     dragStart(ptrId);
                     toDragAnUnselected = true;
                 } else {
-                    touchDownType = TOUCH_DOWN_TYPE.WHITESPACE;
+                    touchDownType = TouchDownType.WHITESPACE;
                 }
-                break;
-            case MotionEvent.ACTION_MOVE:
-                if (isDragging)
-                    dragMove(event);
+                gesturePointers.get(0).setTouchDownType(touchDownType);
                 break;
 
-            // TODO: Multitouch scenarios
             case MotionEvent.ACTION_POINTER_DOWN:
+                if (isDragging) dragEnd();
                 break;
+
+            case MotionEvent.ACTION_MOVE:
+                if (isDragging) dragMove();
+                break;
+
             case MotionEvent.ACTION_POINTER_UP:
                 break;
+
             case MotionEvent.ACTION_UP:  // ACTION_UP falls through to teardown in CANCEL
-                final long duration = event.getEventTime() - event.getDownTime();
-                final double distanceMoved = distanceBtw(x, y, downActivePtrX, downActivePtrY);
-                if (duration <= TAP_WINDOW &&
+                PointerDescriptor ptrDesc = gesturePointers.get(0);
+                final double distanceMoved = distanceBtw(x, y,
+                        ptrDesc.getDownX(), ptrDesc.getDownY());
+                if (ptrDesc.getDownDuration() <= TAP_WINDOW &&
                     distanceMoved <= TAP_MOVE_DISTANCE_TOLERANCE)
                     handleTap(event);
             case MotionEvent.ACTION_CANCEL:
@@ -182,11 +191,47 @@ public class DrawView extends View {
         return true;
     }
 
+    private void updateGesturePointers(MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                if (!gesturePointers.isEmpty())         // Sanity check
+                    throw new IllegalStateException("DrawView: " +
+                            "OnTouchEvent(): on ACTION_DOWN gesturePointers " +
+                            "should be empty");
+                gesturePointers.add(new PointerDescriptor(event));
+                break;
+            case MotionEvent.ACTION_POINTER_DOWN:
+                gesturePointers.add(new PointerDescriptor(event));
+                break;
+            case MotionEvent.ACTION_MOVE:
+                for (PointerDescriptor p: gesturePointers)
+                    if (p.getID() == event.getPointerId(event.getActionIndex()))
+                        p.update(event);
+                break;
+            case MotionEvent.ACTION_POINTER_UP:
+                int deadDescIndex = -1;
+                for (int i = 0; i < gesturePointers.size(); i++) {
+                    if (gesturePointers.get(i).getID() ==
+                    event.getPointerId(event.getActionIndex())) {
+                        deadDescIndex = i;
+                        break;
+                    }
+                }
+                gesturePointers.remove(deadDescIndex);
+                break;
+            case MotionEvent.ACTION_UP:
+                if (gesturePointers.size() != 1)
+                    throw new IllegalStateException("DrawView: updateGesturePointers: " +
+                            "size of gesturePointers should be 1 upon ACTION_UP");
+                gesturePointers.get(0).update(event);
+                break;
+        }
+    }
+
     private void teardown() {
-        touchDownType = TOUCH_DOWN_TYPE.UNDEFINED;
+        gesturePointers.clear();
         containingObjIndex = -1;
-        if (isDragging)
-            dragEnd();
+        if (isDragging) dragEnd();
     }
 
     private void handleTap(MotionEvent event) {
@@ -202,7 +247,7 @@ public class DrawView extends View {
 
         // Single tap: select/deselect
         else {
-            switch (touchDownType) {
+            switch (gesturePointers.get(0).getTouchDownType()) {
                 case UNSELECTED:                // select the unselected
                     deselectAll();
                     select(containingObjIndex);
@@ -224,37 +269,24 @@ public class DrawView extends View {
                 getSizeOfNoteObjects() + " after tap");
     }
 
-    //  1st touch down within one of the objects:
-    //  Record where the ptr started
-    //  Record as "active pointer" (primary ptr)
     private void dragStart(final int ptrId) {
         isDragging = true;
-        lastActivePtrX = downActivePtrX;
-        lastActivePtrY = downActivePtrY;
-        activePtrID = ptrId;
     }
 
-    private void dragMove(MotionEvent event) {
-        final int activePtrIndex = event.findPointerIndex(activePtrID);
-        final float currActivePtrX = event.getX(activePtrIndex);
-        final float currActivePtrY = event.getY(activePtrIndex);
-        final float dx = currActivePtrX - lastActivePtrX;
-        final float dy = currActivePtrY - lastActivePtrY;
-
+    private void dragMove() {
         if (toDragAnUnselected) {
             deselectAll();
             select(containingObjIndex);
         }
+        PointerDescriptor primaryPtrDesc = gesturePointers.get(0);
         for (NoteObjectWrap objWrap: noteObjects)
             if (objWrap.isSelected())
-                objWrap.moveBy(dx, dy);
+                objWrap.moveBy(primaryPtrDesc.getDeltaLastX(),
+                               primaryPtrDesc.getDeltaLastY());
         invalidate();
-        lastActivePtrX = currActivePtrX;
-        lastActivePtrY = currActivePtrY;
     }
 
     private void dragEnd() {
-        activePtrID = MotionEvent.INVALID_POINTER_ID;
         isDragging = false;
     }
 
@@ -418,11 +450,4 @@ public class DrawView extends View {
                 numSelected++;
         return numSelected;
     }
-}
-
-enum TOUCH_DOWN_TYPE {
-    SELECTED,
-    UNSELECTED,
-    WHITESPACE,
-    UNDEFINED
 }
