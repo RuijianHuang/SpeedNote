@@ -41,7 +41,6 @@ public class DrawView extends View {
     private Canvas _canvas;
     private Paint mBitmapPaint;     // FIXME: what is this?
     private final RelativeLayout drawViewRelativeLayout;
-    private final DrawView drawViewRef;                     // FIXME: used in panning sample code, useful?
     private final Matrix mMatrix;
 
     public DrawView(Context context) {
@@ -49,7 +48,6 @@ public class DrawView extends View {
     }
     public DrawView(Context context, AttributeSet attrs) {
         super(context, attrs);
-        drawViewRef = this;
         drawViewRelativeLayout = new RelativeLayout(this.getContext());
         mMatrix = new Matrix();
         noteObjects = new ArrayList<>();
@@ -135,9 +133,6 @@ public class DrawView extends View {
     // Flags for ACTION_MOVE, ACTION_UP to decide how to act
     private boolean isDragging = false;
 
-    // Flag to specify whether the object to drag is one of the selected
-    private boolean toDragAnUnselected = false;
-
     // Index of the note object in noteObjects that contains the pointer
     private int containingObjIndex = -1;
 
@@ -152,8 +147,8 @@ public class DrawView extends View {
         final int ptrIndex = event.getActionIndex();
         final int ptrId = event.getPointerId(ptrIndex);
         final int ptrType = event.getToolType(ptrIndex);
-        final float x = event.getX();
-        final float y = event.getY();
+        final float x = event.getX(event.getActionIndex());
+        final float y = event.getY(event.getActionIndex());
         TouchDownType touchDownType = TouchDownType.UNDEFINED;
 
         if (ptrCount == 1 && ptrType == MotionEvent.TOOL_TYPE_STYLUS) {
@@ -179,15 +174,11 @@ public class DrawView extends View {
                 touchDownType = checkTouchDownType(x, y);
                 gesturePointers.get(0).setTouchDownType(touchDownType);
                 gesturePointers.get(0).setContainingObjIndex(containingObjIndex);
-                if (touchDownType != TouchDownType.WHITESPACE) {
-                    dragStart(ptrId);
-                    if (touchDownType == TouchDownType.UNSELECTED)
-                        toDragAnUnselected = true;
-                }
+                if (touchDownType != TouchDownType.WHITESPACE)
+                    dragStart(ptrId, touchDownType==TouchDownType.UNSELECTED);
                 break;
 
             case MotionEvent.ACTION_POINTER_DOWN:
-//                if (isDragging) dragEnd();          // FIXME: should we end drag?
                 touchDownType = checkTouchDownType(x, y);
                 gesturePointers.get(event.getActionIndex()).setTouchDownType(touchDownType);
                 gesturePointers.get(event.getActionIndex()).setContainingObjIndex(containingObjIndex);
@@ -203,8 +194,7 @@ public class DrawView extends View {
 
                 // Primary hold + up finger tap
                 if (isTap(upPtr) &&
-                    primaryPtr.getTouchDownType() != TouchDownType.WHITESPACE &&
-                    primaryPtr.getDeltaDown() <= TAP_MOVE_DISTANCE_TOLERANCE)
+                    primaryPtr.getTouchDownType() != TouchDownType.WHITESPACE)
                 {
                     // Switch to select the obj under primaryPtr
                     if (primaryPtr.getTouchDownType() == TouchDownType.UNSELECTED) {
@@ -218,10 +208,6 @@ public class DrawView extends View {
                         select(upPtr.getContainingObjIndex());
                     else if (touchDownType == TouchDownType.SELECTED)
                         deselect(upPtr.getContainingObjIndex());
-
-                    // FIXME: debugging
-                    Log.d(LOG_TAG, "ACTION_POINTER_UP(): number of objects selected = " +
-                            getSizeOfNoteObjects() + " after hold+tap");
                 }
 
                 int deadPtrIndex = -1;
@@ -321,21 +307,17 @@ public class DrawView extends View {
             }
             lastTapUpTime = event.getEventTime();
         }
-
-        // FIXME: debugging
-        Log.d(LOG_TAG, "handleTap(): number of objects selected = " +
-                getSizeOfNoteObjects() + " after tap");
     }
 
-    private void dragStart(final int ptrId) {
+    private void dragStart(final int ptrId, boolean toDragAnUnselected) {
         isDragging = true;
-    }
-
-    private void dragMove() {
         if (toDragAnUnselected) {
             deselectAll();
             select(containingObjIndex);
         }
+    }
+
+    private void dragMove() {
         PointerDescriptor primaryPtr = gesturePointers.get(0);
         for (NoteObjectWrap objWrap: noteObjects)
             if (objWrap.isSelected())
@@ -363,6 +345,7 @@ public class DrawView extends View {
         for (NoteObjectWrap objWrap: noteObjects)
             if (objWrap.isSelected())
                 objWrap.setSelected(false);
+        invalidate();
     }
 
 
@@ -461,6 +444,7 @@ public class DrawView extends View {
         invalidate();
     }
 
+    @RequiresApi(api = Build.VERSION_CODES.O)
     private TouchDownType checkTouchDownType(final float x, final float y) {
         if (isWithin(x, y, true))
             return TouchDownType.SELECTED;
@@ -473,9 +457,6 @@ public class DrawView extends View {
     // Pointer position checker
     // If the point is within an note object of the specified type (selected or not)
     // containingObjIndex will be set to the index of the object in noteObjects
-    // FIXME:
-    //  if isWithin() is only used in ACTION_DOWN, then x y args can be removed,
-    //  use downActivePtrX/downActivePtrY instead
     @RequiresApi(api = Build.VERSION_CODES.O)
     private boolean isWithin(final float x, final float y, boolean isSelectedList) {
         for (NoteObjectWrap objWrap: noteObjects) {
