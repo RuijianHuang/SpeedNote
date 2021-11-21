@@ -4,11 +4,13 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.DashPathEffect;
 import android.graphics.Matrix;
 import android.graphics.Path;
 import android.graphics.Paint;
+import android.graphics.PathEffect;
+import android.graphics.RectF;
 import android.os.Build;
-import android.text.method.Touch;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.MotionEvent;
@@ -93,20 +95,39 @@ public class DrawView extends View {
 
         uiCanvas.drawColor(currBgColor);
 
+        // These 2 lines 'make' all EditTexts viewable
+        drawViewRelativeLayout.measure(uiCanvas.getWidth(), uiCanvas.getHeight());
+        drawViewRelativeLayout.layout(50, 50, uiCanvas.getWidth(), uiCanvas.getHeight());
+
         for (NoteObjectWrap objWrap: noteObjects) {
             if (objWrap.getNoteObj() instanceof Stroke) {
                 Stroke stk = (Stroke) objWrap.getNoteObj();
                 paint.setColor(stk.color);
                 paint.setStrokeWidth(stk.strokeWidth);
+                if (objWrap.isSelected())
+                    paint.setPathEffect(new DashPathEffect(
+                            new float[] {20f, ((float) stk.strokeWidth)*1.5f}, 0f
+                    ));
+                else
+                    paint.setPathEffect(new PathEffect());
                 uiCanvas.drawPath(stk.path, paint);
+            } else if (objWrap.getNoteObj() instanceof EditText) {
+                EditText ed = (EditText) objWrap.getNoteObj();
+                RectF roundRectWrap = new RectF(ed.getX(), ed.getY(),
+                        ed.getX() + ((float) ed.getWidth()),
+                        ed.getY() + ((float) ed.getHeight()));
+                if (objWrap.isSelected())
+                    paint.setPathEffect(new DashPathEffect(
+                            new float[] {20f, 20f}, 0f
+                    ));
+                else
+                    paint.setPathEffect(new PathEffect());
+                paint.setStrokeWidth(2);
+                uiCanvas.drawRoundRect(roundRectWrap, 20f, 20f, paint);
             }
         }
 
-        // FIXME: code needed for updating changes of EditText
-        drawViewRelativeLayout.measure(uiCanvas.getWidth(), uiCanvas.getHeight());
-        drawViewRelativeLayout.layout(50, 50, uiCanvas.getWidth(), uiCanvas.getHeight());
         drawViewRelativeLayout.draw(uiCanvas);
-
         uiCanvas.restore();
     }
 
@@ -136,6 +157,7 @@ public class DrawView extends View {
         TouchDownType touchDownType = TouchDownType.UNDEFINED;
 
         if (ptrCount == 1 && ptrType == MotionEvent.TOOL_TYPE_STYLUS) {
+            deselectAll();
             draw(event);
             return true;
         }
@@ -328,10 +350,12 @@ public class DrawView extends View {
 
     private void select(final int index) {
         noteObjects.get(index).setSelected(true);
+        invalidate();
     }
 
     private void deselect(final int index) {
         noteObjects.get(index).setSelected(false);
+        invalidate();
     }
 
     // Private helper to deselect all by unsetting 'isSelected' flags
