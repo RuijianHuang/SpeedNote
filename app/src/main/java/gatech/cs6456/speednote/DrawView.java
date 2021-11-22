@@ -15,6 +15,7 @@ import android.util.AttributeSet;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.RelativeLayout;
 
@@ -42,6 +43,8 @@ public class DrawView extends View {
     private Paint mBitmapPaint;     // FIXME: what is this?
     private final RelativeLayout drawViewRelativeLayout;
     private final Matrix mMatrix;
+    // new added instance for keyboard
+    private final InputMethodManager imm;
 
     public DrawView(Context context) {
         this(context, null);
@@ -60,6 +63,8 @@ public class DrawView extends View {
         paint.setStrokeJoin(Paint.Join.ROUND);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setAlpha(0xff);
+        imm = (InputMethodManager) this.getContext()
+                .getSystemService(Context.INPUT_METHOD_SERVICE);
     }
 
     // init bitmap, canvas, and attributes
@@ -114,12 +119,17 @@ public class DrawView extends View {
                 RectF roundRectWrap = new RectF(ed.getX(), ed.getY(),
                         ed.getX() + ((float) ed.getWidth()),
                         ed.getY() + ((float) ed.getHeight()));
-                if (objWrap.isSelected())
+                if (objWrap.isSelected()) {
                     paint.setPathEffect(new DashPathEffect(
                             new float[] {20f, 20f}, 0f
                     ));
-                else
+                }
+
+                else {
+                    //EXIT TYPE IN MODE
                     paint.setPathEffect(new PathEffect());
+                }
+
                 paint.setStrokeWidth(2);
                 uiCanvas.drawRoundRect(roundRectWrap, 20f, 20f, paint);
             }
@@ -127,6 +137,18 @@ public class DrawView extends View {
 
         drawViewRelativeLayout.draw(uiCanvas);
         uiCanvas.restore();
+    }
+    
+    public void showKeyboard(){
+        if (!imm.isAcceptingText()) {
+            imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0);
+        }
+    }
+    public void closeKeyboard(){
+
+        if (imm.isAcceptingText()) {
+            imm.toggleSoftInput(InputMethodManager.HIDE_IMPLICIT_ONLY, 0);
+        }
     }
 
 
@@ -186,6 +208,7 @@ public class DrawView extends View {
 
             case MotionEvent.ACTION_MOVE:
                 if (isDragging) dragMove();
+                // FIXME: temporal deselect logic for focus and keyboard?
                 break;
 
             case MotionEvent.ACTION_POINTER_UP:
@@ -331,20 +354,35 @@ public class DrawView extends View {
     }
 
     private void select(final int index) {
-        noteObjects.get(index).setSelected(true);
+        NoteObjectWrap w = noteObjects.get(index);
+        w.setSelected(true);
+        if (w.getNoteObj() instanceof EditText) {
+            ((EditText) w.getNoteObj()).requestFocus();
+            // TODO: select logic for focus and keyboard
+        }
         invalidate();
     }
 
     private void deselect(final int index) {
-        noteObjects.get(index).setSelected(false);
+        NoteObjectWrap w = noteObjects.get(index);
+        w.setSelected(false);
+        if (w.getNoteObj() instanceof EditText && ((EditText) w.getNoteObj()).hasFocus()) {
+            ((EditText) w.getNoteObj()).clearFocus();
+            // TODO: deselect logic for focus and keyboard
+        }
         invalidate();
     }
 
     // Private helper to deselect all by unsetting 'isSelected' flags
     private void deselectAll() {
         for (NoteObjectWrap objWrap: noteObjects)
-            if (objWrap.isSelected())
+            if (objWrap.isSelected()) {
                 objWrap.setSelected(false);
+                if (objWrap.getNoteObj() instanceof EditText && ((EditText) objWrap.getNoteObj()).hasFocus()) {
+                    // TODO: deselect logic for focus and keyboard
+                    ((EditText) objWrap.getNoteObj()).clearFocus();
+                }
+            }
         invalidate();
     }
 
