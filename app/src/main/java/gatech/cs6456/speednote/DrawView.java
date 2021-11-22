@@ -26,7 +26,7 @@ import java.util.ArrayList;
 public class DrawView extends View {
     private static final String LOG_TAG = "RICHIE";  // FIXME: debug logcat tag
     private static final float TOUCH_TOLERANCE = 4;
-    private static final double TAP_WINDOW = 200;    // in milliseconds
+    private static final double TAP_WINDOW = 150;    // in milliseconds
     private static final int TAP_MOVE_DISTANCE_TOLERANCE = 10;
     private static final int TAP_COORDINATE_CALIBRATION = 15;
 
@@ -45,6 +45,7 @@ public class DrawView extends View {
     private final Matrix mMatrix;
     // new added instance for keyboard
     private final InputMethodManager imm;
+    private boolean keyboard_status;
 
     public DrawView(Context context) {
         this(context, null);
@@ -65,6 +66,7 @@ public class DrawView extends View {
         paint.setAlpha(0xff);
         imm = (InputMethodManager) this.getContext()
                 .getSystemService(Context.INPUT_METHOD_SERVICE);
+        keyboard_status = false;
     }
 
     // init bitmap, canvas, and attributes
@@ -138,16 +140,17 @@ public class DrawView extends View {
         drawViewRelativeLayout.draw(uiCanvas);
         uiCanvas.restore();
     }
-    
+
     public void showKeyboard(){
-        if (!imm.isAcceptingText()) {
+        if (!keyboard_status) {
             imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0);
+            keyboard_status = true;
         }
     }
     public void closeKeyboard(){
-
-        if (imm.isAcceptingText()) {
-            imm.toggleSoftInput(InputMethodManager.HIDE_IMPLICIT_ONLY, 0);
+        if (keyboard_status) {
+            imm.hideSoftInputFromWindow(getWindowToken(), 0);
+            keyboard_status = false;
         }
     }
 
@@ -196,8 +199,12 @@ public class DrawView extends View {
                 touchDownType = checkTouchDownType(x, y);
                 gesturePointers.get(0).setTouchDownType(touchDownType);
                 gesturePointers.get(0).setContainingObjIndex(containingObjIndex);
-                if (touchDownType != TouchDownType.WHITESPACE)
+                if (touchDownType != TouchDownType.WHITESPACE){
                     dragStart(ptrId, touchDownType==TouchDownType.UNSELECTED);
+                    //no keyboard during dragging
+                    closeKeyboard();
+                }
+
                 break;
 
             case MotionEvent.ACTION_POINTER_DOWN:
@@ -250,6 +257,14 @@ public class DrawView extends View {
                     handleTap(event);
             case MotionEvent.ACTION_CANCEL:
                 teardown();
+                //restore keyboard at the end of dragging
+                for (NoteObjectWrap w :noteObjects) {
+                    if (w.getNoteObj() instanceof EditText){
+                        if (((EditText) w.getNoteObj()).hasFocus()){
+                            showKeyboard();
+                        }
+                    }
+                }
                 break;
         }
 
@@ -307,7 +322,19 @@ public class DrawView extends View {
         if (event.getDownTime() - lastTapUpTime <= TAP_WINDOW) {
             addEditText(event.getX(), event.getY(), 36, "NEW");
             deselectAll();
+            for (NoteObjectWrap w :noteObjects) {
+                if (w.getNoteObj() instanceof EditText){
+                    if (((EditText) w.getNoteObj()).hasFocus()){
+                        ((EditText) w.getNoteObj()).clearFocus();
+                    }
+                }
+            }
+            closeKeyboard();
             select(noteObjects.size()-1);
+            if (noteObjects.get(noteObjects.size()-1).getNoteObj() instanceof EditText) {
+                ((EditText) noteObjects.get(noteObjects.size()-1).getNoteObj()).requestFocus();
+                showKeyboard();
+            }
             lastTapUpTime = 0;                  // reset for next double tap
         }
 
@@ -318,12 +345,28 @@ public class DrawView extends View {
                 case UNSELECTED:                // select the unselected
                     deselectAll();
                     select(primaryPtr.getContainingObjIndex());
+                    if (noteObjects.get(primaryPtr.getContainingObjIndex()).getNoteObj() instanceof EditText) {
+                        ((EditText) noteObjects.get(primaryPtr.getContainingObjIndex()).getNoteObj()).requestFocus();
+                        showKeyboard();
+                    }
                     break;
                 case SELECTED:                  // deselected the selected
                     deselect(primaryPtr.getContainingObjIndex());
+                    if (noteObjects.get(primaryPtr.getContainingObjIndex()).getNoteObj() instanceof EditText) {
+                        ((EditText) noteObjects.get(primaryPtr.getContainingObjIndex()).getNoteObj()).clearFocus();
+                        closeKeyboard();
+                    }
                     break;
                 case WHITESPACE:
                     deselectAll();
+                    for (NoteObjectWrap w :noteObjects) {
+                        if (w.getNoteObj() instanceof EditText){
+                            if (((EditText) w.getNoteObj()).hasFocus()){
+                                ((EditText) w.getNoteObj()).clearFocus();
+                            }
+                        }
+                    }
+                    closeKeyboard();
                     break;
                 case UNDEFINED:
                     throw new IllegalArgumentException("UNDEFINED touchDownType in handleTap");
@@ -357,7 +400,6 @@ public class DrawView extends View {
         NoteObjectWrap w = noteObjects.get(index);
         w.setSelected(true);
         if (w.getNoteObj() instanceof EditText) {
-            ((EditText) w.getNoteObj()).requestFocus();
             // TODO: select logic for focus and keyboard
         }
         invalidate();
@@ -367,7 +409,6 @@ public class DrawView extends View {
         NoteObjectWrap w = noteObjects.get(index);
         w.setSelected(false);
         if (w.getNoteObj() instanceof EditText && ((EditText) w.getNoteObj()).hasFocus()) {
-            ((EditText) w.getNoteObj()).clearFocus();
             // TODO: deselect logic for focus and keyboard
         }
         invalidate();
@@ -380,7 +421,6 @@ public class DrawView extends View {
                 objWrap.setSelected(false);
                 if (objWrap.getNoteObj() instanceof EditText && ((EditText) objWrap.getNoteObj()).hasFocus()) {
                     // TODO: deselect logic for focus and keyboard
-                    ((EditText) objWrap.getNoteObj()).clearFocus();
                 }
             }
         invalidate();
