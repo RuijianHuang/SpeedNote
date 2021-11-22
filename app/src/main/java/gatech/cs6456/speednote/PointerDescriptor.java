@@ -122,6 +122,7 @@ public class PointerDescriptor {
 enum TouchDownType {
     SELECTED,
     UNSELECTED,
+    EDITTEXT,
     WHITESPACE,
     UNDEFINED
 }

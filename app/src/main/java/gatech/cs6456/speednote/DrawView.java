@@ -11,10 +11,12 @@ import android.graphics.Paint;
 import android.graphics.PathEffect;
 import android.graphics.RectF;
 import android.os.Build;
+import android.text.InputType;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.RelativeLayout;
 
@@ -28,6 +30,7 @@ public class DrawView extends View {
     private static final double TAP_WINDOW = 200;    // in milliseconds
     private static final int TAP_MOVE_DISTANCE_TOLERANCE = 10;
     private static final int TAP_COORDINATE_CALIBRATION = 15;
+    private static final int WRAP_PADDING = 15;
 
     private final ArrayList<NoteObjectWrap> noteObjects;
     private final ArrayList<PointerDescriptor> gesturePointers;
@@ -37,11 +40,13 @@ public class DrawView extends View {
     private int currPaintColor;
     private int currStrokeWidth;
     private int currBgColor;
+    private RectF roundRectWrap;
     private Bitmap bitmap;
     private Canvas _canvas;
     private Paint mBitmapPaint;     // FIXME: what is this?
     private final RelativeLayout drawViewRelativeLayout;
     private final Matrix mMatrix;
+    private final InputMethodManager imm;
 
     public DrawView(Context context) {
         this(context, null);
@@ -60,6 +65,9 @@ public class DrawView extends View {
         paint.setStrokeJoin(Paint.Join.ROUND);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setAlpha(0xff);
+        imm = (InputMethodManager) this.getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        roundRectWrap = new RectF();
+        hideKeyboard();
     }
 
     // init bitmap, canvas, and attributes
@@ -103,21 +111,17 @@ public class DrawView extends View {
                 paint.setColor(stk.color);
                 paint.setStrokeWidth(stk.strokeWidth);
                 if (objWrap.isSelected())
-                    paint.setPathEffect(new DashPathEffect(
-                            new float[] {20f, ((float) stk.strokeWidth)*1.5f}, 0f
-                    ));
+                    paint.setPathEffect(new DashPathEffect(new float[] {20f, ((float) stk.strokeWidth)*1.5f}, 0f));
                 else
                     paint.setPathEffect(new PathEffect());
                 uiCanvas.drawPath(stk.path, paint);
             } else if (objWrap.getNoteObj() instanceof EditText) {
                 EditText ed = (EditText) objWrap.getNoteObj();
-                RectF roundRectWrap = new RectF(ed.getX(), ed.getY(),
-                        ed.getX() + ((float) ed.getWidth()),
-                        ed.getY() + ((float) ed.getHeight()));
+                roundRectWrap.set(ed.getX() - WRAP_PADDING, ed.getY(),
+                                  ed.getX() + ((float) ed.getWidth()) + WRAP_PADDING,
+                                  ed.getY() + ((float) ed.getHeight()));
                 if (objWrap.isSelected())
-                    paint.setPathEffect(new DashPathEffect(
-                            new float[] {20f, 20f}, 0f
-                    ));
+                    paint.setPathEffect(new DashPathEffect( new float[] {20f, 20f}, 0f ));
                 else
                     paint.setPathEffect(new PathEffect());
                 paint.setStrokeWidth(2);
@@ -138,6 +142,8 @@ public class DrawView extends View {
 
     // Time of last 'tap event'
     private long lastTapUpTime = 0;
+
+    private int editingBoxIndex = -1;
 
     // touch event dispatcher
     @RequiresApi(api = Build.VERSION_CODES.O)
@@ -174,8 +180,26 @@ public class DrawView extends View {
                 touchDownType = checkTouchDownType(x, y);
                 gesturePointers.get(0).setTouchDownType(touchDownType);
                 gesturePointers.get(0).setContainingObjIndex(containingObjIndex);
-                if (touchDownType != TouchDownType.WHITESPACE)
-                    dragStart(ptrId, touchDownType==TouchDownType.UNSELECTED);
+
+                clearEditingFocus();
+                hideKeyboard();
+
+                // Enter edit mode
+                if (touchDownType == TouchDownType.EDITTEXT) {
+                    EditText ed = (EditText) noteObjects.get(containingObjIndex).getNoteObj();
+                    deselectAll();
+                    ed.requestFocus();
+                    toggleKeyboard();
+                    editingBoxIndex = containingObjIndex;
+                    break;
+                }
+
+                editingBoxIndex = -1;
+                if (touchDownType != TouchDownType.WHITESPACE) {
+                    dragStart(ptrId, touchDownType == TouchDownType.UNSELECTED);
+                } else {
+
+                }
                 break;
 
             case MotionEvent.ACTION_POINTER_DOWN:
@@ -280,9 +304,9 @@ public class DrawView extends View {
     private void handleTap(MotionEvent event) {
         // Double tap:
         //      new EditText at contact pt
-        //      switch to select new EditText TODO: switch to input mode?
+        //      switch to select new EditText
         if (event.getDownTime() - lastTapUpTime <= TAP_WINDOW) {
-            addEditText(event.getX(), event.getY(), 36, "NEW");
+            addEditText(event.getX(), event.getY(), 20, "");
             deselectAll();
             select(noteObjects.size()-1);
             lastTapUpTime = 0;                  // reset for next double tap
@@ -291,6 +315,7 @@ public class DrawView extends View {
         // Single tap: select/deselect
         else {
             PointerDescriptor primaryPtr = gesturePointers.get(0);
+            boolean potentialDoubleTap = false;
             switch (primaryPtr.getTouchDownType()) {
                 case UNSELECTED:                // select the unselected
                     deselectAll();
@@ -300,12 +325,13 @@ public class DrawView extends View {
                     deselect(primaryPtr.getContainingObjIndex());
                     break;
                 case WHITESPACE:
+                    potentialDoubleTap = true;
                     deselectAll();
                     break;
                 case UNDEFINED:
                     throw new IllegalArgumentException("UNDEFINED touchDownType in handleTap");
             }
-            lastTapUpTime = event.getEventTime();
+            lastTapUpTime = potentialDoubleTap ? event.getEventTime() : 0;
         }
     }
 
@@ -354,7 +380,6 @@ public class DrawView extends View {
         float x = event.getX(), y = event.getY();
         switch (event.getAction()) {
             case MotionEvent.ACTION_DOWN:
-                // TODO: deselect all selected
                 drawStart(x, y);
                 invalidate();
                 break;
@@ -399,6 +424,26 @@ public class DrawView extends View {
         path.lineTo(lastX, lastY);
     }
 
+    private void clearEditingFocus() {
+        for (NoteObjectWrap objWrap: noteObjects) {
+            if (objWrap.getNoteObj() instanceof EditText &&
+                ((EditText) objWrap.getNoteObj()).hasFocus())
+                ((EditText) objWrap.getNoteObj()).clearFocus();
+        }
+        invalidate();
+    }
+
+    // Private helpers for manually toggling soft keyboard
+    private void toggleKeyboard() {
+        Log.d(LOG_TAG, " >>>>>>>>>>> toggleKb");
+        imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, InputMethodManager.HIDE_IMPLICIT_ONLY);
+    }
+
+    private void hideKeyboard() {
+        Log.d(LOG_TAG, " >>>>>>>>>>> hidekb");
+        imm.hideSoftInputFromWindow(this.getWindowToken(), 0);
+    }
+
 
     // Private helper to add Stroke to list
     private void addStroke(Stroke stroke) {
@@ -427,6 +472,9 @@ public class DrawView extends View {
                 RelativeLayout.LayoutParams.MATCH_PARENT
         ));
         ed.setVisibility(View.VISIBLE);
+        ed.setFocusable(true);
+        ed.setTextIsSelectable(true);
+        ed.setInputType(InputType.TYPE_CLASS_TEXT);
         ed.setBackgroundColor(Color.TRANSPARENT);
         ed.setX(x - TAP_COORDINATE_CALIBRATION);
         ed.setY(y - TAP_COORDINATE_CALIBRATION);
@@ -444,30 +492,25 @@ public class DrawView extends View {
         invalidate();
     }
 
+    // Check position of contact to determine touchDownType of that ptr
     @RequiresApi(api = Build.VERSION_CODES.O)
     private TouchDownType checkTouchDownType(final float x, final float y) {
-        if (isWithin(x, y, true))
-            return TouchDownType.SELECTED;
-        else if (isWithin(x, y, false))
-            return TouchDownType.UNSELECTED;
-        else
-            return TouchDownType.WHITESPACE;
-    }
-
-    // Pointer position checker
-    // If the point is within an note object of the specified type (selected or not)
-    // containingObjIndex will be set to the index of the object in noteObjects
-    @RequiresApi(api = Build.VERSION_CODES.O)
-    private boolean isWithin(final float x, final float y, boolean isSelectedList) {
-        for (NoteObjectWrap objWrap: noteObjects) {
-            if (isSelectedList != objWrap.isSelected())
-                continue;
-            if (objWrap.isWithin(x, y)) {
-                containingObjIndex = noteObjects.indexOf(objWrap);
-                return true;
+        TouchDownType touchDownType = TouchDownType.WHITESPACE;
+        for (int i = noteObjects.size()-1; i >= 0; i--) {
+            NoteObjectWrap wrap = noteObjects.get(i);
+            if (wrap.getNoteObj() instanceof EditText &&
+                    wrap.containsInEditText(x, y)) {
+                containingObjIndex = i;
+                return TouchDownType.EDITTEXT;
+            }
+            if (wrap.contains(x, y)) {
+                containingObjIndex = i;
+                return wrap.isSelected() ?
+                        TouchDownType.SELECTED :
+                        TouchDownType.UNSELECTED;
             }
         }
-        return false;
+        return touchDownType;
     }
 
     private boolean isTap(PointerDescriptor p) {
