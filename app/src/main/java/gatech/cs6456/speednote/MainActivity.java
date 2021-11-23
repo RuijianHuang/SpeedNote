@@ -6,8 +6,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.util.Log;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewTreeObserver;
+import android.widget.EditText;
 import android.widget.ImageButton;
 
 import com.google.android.material.slider.RangeSlider;
@@ -18,6 +21,36 @@ public class MainActivity extends AppCompatActivity {
     private DrawView drawView;
     private ImageButton btnSave, btnColor, btnStroke, btnUndo;
     private RangeSlider rangeSlider;
+
+    //text edit
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DEL:
+                if (drawView.getBoxID()!=-1) {
+                    if (drawView.getNoteObjects().get(drawView.getBoxID()).getNoteObj() instanceof EditText) {
+                        EditText ed = (EditText) drawView.getNoteObjects().get(drawView.getBoxID()).getNoteObj();
+                        String text = ed.getText().toString();
+                        if (text.length()>0){
+                            ed.setText(text.substring(0, text.length()-1));
+                            drawView.invalidate();
+                        }
+                    }
+                }
+                break;
+            default:
+                if (drawView.getBoxID()!=-1) {
+                    if (drawView.getNoteObjects().get(drawView.getBoxID()).getNoteObj() instanceof EditText) {
+                        EditText ed = (EditText) drawView.getNoteObjects().get(drawView.getBoxID()).getNoteObj();
+                        ed.setText(ed.getText() + String.valueOf((char)event.getUnicodeChar()));
+                        drawView.invalidate();
+                    }
+                }
+        }
+        return super.onKeyUp(keyCode, event);
+    }
+
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

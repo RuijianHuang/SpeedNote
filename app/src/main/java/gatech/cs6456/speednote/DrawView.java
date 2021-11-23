@@ -12,10 +12,15 @@ import android.graphics.PathEffect;
 import android.graphics.RectF;
 import android.os.Build;
 import android.text.InputType;
+import android.text.SpannableStringBuilder;
 import android.util.AttributeSet;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.inputmethod.BaseInputConnection;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.RelativeLayout;
@@ -46,7 +51,6 @@ public class DrawView extends View {
     private Paint mBitmapPaint;     // FIXME: what is this?
     private final RelativeLayout drawViewRelativeLayout;
     private final Matrix mMatrix;
-    // new added instance for keyboard
     private final InputMethodManager imm;
     private boolean keyboard_status;
 
@@ -71,7 +75,9 @@ public class DrawView extends View {
         imm = (InputMethodManager) this.getContext()
                 .getSystemService(Context.INPUT_METHOD_SERVICE);
         keyboard_status = false;
+
     }
+
 
     // init bitmap, canvas, and attributes
     public void init(int height, int width) {
@@ -549,7 +555,17 @@ public class DrawView extends View {
         return Math.sqrt(Math.pow(x1-x2, 2) + Math.pow(y1-y2, 2));
     }
 
+
+
     // Below are getters and setters
+    public ArrayList<NoteObjectWrap> getNoteObjects() {
+        return this.noteObjects;
+    }
+
+    public int getBoxID() {
+        return this.editingBoxIndex;
+    }
+
     public Bitmap getBitmap() {     // FIXME: save?
         return this.bitmap;
     }
