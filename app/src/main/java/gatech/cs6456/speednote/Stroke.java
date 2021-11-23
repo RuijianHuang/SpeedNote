@@ -23,6 +23,13 @@ public class Stroke {
         this.pathMeasure = new PathMeasure();
     }
 
+    public Stroke(Stroke anotherStroke) {
+        this.color = anotherStroke.color;
+        this.strokeWidth = anotherStroke.strokeWidth;
+        this.path = new Path(anotherStroke.path);
+        this.pathMeasure = new PathMeasure();
+    }
+
     public void scaleBy(final double scaleFactor) {
         this.strokeWidth += scaleFactor/10;
         this.strokeWidth = Math.max(this.strokeWidth, MIN_STROKE_WIDTH);

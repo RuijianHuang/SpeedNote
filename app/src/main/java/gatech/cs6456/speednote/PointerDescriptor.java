@@ -148,7 +148,8 @@ public class PointerDescriptor {
                 "\tdownTime: " + this.downTime + ", downDuration: " + this.downDuration + "\n" +
                 "\tdown coordinate: (" + this.downX + ", " + this.downY + ")\n" +
                 "\tlast coordinate: (" + this.lastX + ", " + this.lastY + ")\n" +
-                "\ttouchDownType: " + touchDownType.toString() + "\n";
+                "\ttouchDownType: " + touchDownType.toString() + "\n" +
+                "\tcontainingObjIndex: " + containingObjIndex + "\n";
     }
 }
 

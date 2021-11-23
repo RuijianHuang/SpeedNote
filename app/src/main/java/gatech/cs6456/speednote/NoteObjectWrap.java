@@ -1,6 +1,9 @@
 package gatech.cs6456.speednote;
 
+import android.graphics.Color;
 import android.os.Build;
+import android.text.InputType;
+import android.view.View;
 import android.widget.EditText;
 
 import androidx.annotation.RequiresApi;
@@ -8,7 +11,7 @@ import androidx.annotation.RequiresApi;
 public class NoteObjectWrap {
     private Object noteObj;
     private boolean isSelected;
-    private final int CONTAIN_MARGIN = 30;
+    private final int CONTAIN_MARGIN = 50;
     private final int MIN_WIDTH = 200;
     private final int MIN_HEIGHT = 300;
 
@@ -20,6 +23,34 @@ public class NoteObjectWrap {
             throw new IllegalArgumentException(
                     "NoteObjectWrap should only contain Stroke or EditText object"
             );
+    }
+
+    public NoteObjectWrap(NoteObjectWrap another) {
+        this.isSelected = another.isSelected ? true : false;
+        if (another.getNoteObj() instanceof Stroke) {
+            this.noteObj = new Stroke((Stroke) another.getNoteObj());
+        } else {
+            EditText anotherEd = (EditText) another.getNoteObj();
+            this.noteObj = new EditText(anotherEd.getContext());
+            cloneEditText(anotherEd);
+        }
+    }
+
+    private void cloneEditText(EditText anotherEd) {
+        EditText ed = (EditText) this.noteObj;
+        ed.setVisibility(View.VISIBLE);
+        ed.setFocusable(true);
+        ed.setTextIsSelectable(true);
+        ed.setInputType(InputType.TYPE_CLASS_TEXT);
+        ed.setBackgroundColor(Color.TRANSPARENT);
+        ed.setX(anotherEd.getX());
+        ed.setY(anotherEd.getY());
+        ed.setHeight(anotherEd.getHeight());
+        ed.setWidth(anotherEd.getWidth());
+        ed.setRotation(anotherEd.getRotation());
+        ed.setTextSize(anotherEd.getTextSize());
+        ed.setTextColor(anotherEd.getCurrentTextColor());
+        ed.setText(ed.getText());
     }
 
     public void scale(final double currXDistance, final double lastXDistance,

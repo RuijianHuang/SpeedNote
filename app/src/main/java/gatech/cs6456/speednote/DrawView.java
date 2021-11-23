@@ -25,10 +25,10 @@ import androidx.annotation.RequiresApi;
 import java.util.ArrayList;
 
 public class DrawView extends View {
-    private static final String LOG_TAG = "RICHIE";  // FIXME: debug logcat tag
+    private static final String LOG_TAG = "SPEEDNOTE_DEBUG";  // FIXME: debug logcat tag
     private static final float TOUCH_TOLERANCE = 4;
-    private static final double TAP_WINDOW = 150;    // in milliseconds
-    private static final int TAP_MOVE_DISTANCE_TOLERANCE = 10;
+    private static final double TAP_WINDOW = 300;    // in milliseconds
+    private static final int TAP_MOVE_DISTANCE_TOLERANCE = 30;
     private static final int TAP_COORDINATE_CALIBRATION = 15;
     private static final int WRAP_PADDING = 15;
 
@@ -141,6 +141,8 @@ public class DrawView extends View {
     // Flags for ACTION_MOVE, ACTION_UP to decide how to act
     private boolean isDragging = false;
 
+    private boolean isCopying = false;
+
     // Index of the note object in noteObjects that contains the pointer
     private int containingObjIndex = -1;
 
@@ -161,9 +163,12 @@ public class DrawView extends View {
         final float y = event.getY(ptrIndex);
         TouchDownType touchDownType;
 
+        // FIXME: DEBUG: finger vs. stylus events
+//        Log.d(LOG_TAG, (ptrType == MotionEvent.TOOL_TYPE_STYLUS ? "STYLUS: " : "FINGER: ") +
+//                MotionEvent.actionToString(event.getActionMasked()));
+
         updateGesturePointers(event);
         if (gesturePointers.size() == 1 && ptrType == MotionEvent.TOOL_TYPE_STYLUS) {
-            printAllPtrs(event);
             deselectAll();
             draw(event);
             return true;
@@ -180,6 +185,7 @@ public class DrawView extends View {
         //      if tap one of the not-selected, select that one
         //      if tap one of the selected, deselect that one
         //      if tap on white space, deselect all
+        containingObjIndex = -1;
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 touchDownType = checkTouchDownType(x, y);
@@ -203,8 +209,17 @@ public class DrawView extends View {
                 if (isDragging)
                     dragMove();
 
-                if (gesturePointers.size() == 2)
-                    handleScaleByPinching();
+                if (gesturePointers.size() == 2) {
+                    if (isCopyPaste() || isCopying) {
+                        Log.d(LOG_TAG, ">>>>>>>>>>>>>> is copy paste");
+                        if (!isCopying)
+                            copyStart();
+                        else
+                            copyMove();
+                    } else if (!isCopying){
+                        handleScaleByPinching();
+                    }
+                }
                 break;
 
             case MotionEvent.ACTION_POINTER_UP:
@@ -228,6 +243,10 @@ public class DrawView extends View {
                     else if (touchDownType == TouchDownType.SELECTED)
                         deselect(upPtr.getContainingObjIndex());
                 }
+
+                // End copying
+                if (gesturePointers.size() == 2 && isCopying)
+                    copyEnd();
 
                 // Update gesturePointers: remove upPtr
                 gesturePointers.remove(upPtr);
@@ -266,11 +285,10 @@ public class DrawView extends View {
                 gesturePointers.add(new PointerDescriptor(event));
                 break;
             case MotionEvent.ACTION_MOVE:
-            case MotionEvent.ACTION_POINTER_UP:
                 for (PointerDescriptor p: gesturePointers) {
-                    int index = event.findPointerIndex(p.getID());
                     p.update(event);
                 }
+            case MotionEvent.ACTION_POINTER_UP:
                 break;
             case MotionEvent.ACTION_UP:
                 if (gesturePointers.size() != 1)
@@ -290,11 +308,43 @@ public class DrawView extends View {
         if (isDragging) dragEnd();
     }
 
+    private void copyStart() {
+        ArrayList<NoteObjectWrap> copyBuffer = new ArrayList<>();
+        for (NoteObjectWrap objectWrap: noteObjects) {
+            if (objectWrap.isSelected()) {
+                copyBuffer.add(new NoteObjectWrap(objectWrap));
+                objectWrap.setSelected(false);
+            }
+        }
+        for (NoteObjectWrap objectWrap: copyBuffer)
+            if (objectWrap.getNoteObj() instanceof EditText)
+                drawViewRelativeLayout.addView((EditText) objectWrap.getNoteObj());
+        noteObjects.addAll(copyBuffer);
+        isCopying = true;
+    }
+
+    private void copyMove() {
+        PointerDescriptor secondaryPtr = gesturePointers.get(1);
+        for (NoteObjectWrap objWrap: noteObjects)
+            if (objWrap.isSelected())
+                objWrap.moveBy(secondaryPtr.getDeltaLastX(),
+                        secondaryPtr.getDeltaLastY());
+        invalidate();
+    }
+
+    private void copyEnd() {
+        isCopying = false;
+    }
+
     private void handleScaleByPinching() {
         double currXDistance, currYDistance, lastXDistance, lastYDistance;
         float[] p0LastPos, p1LastPos;
         PointerDescriptor p0 = gesturePointers.get(0);
         PointerDescriptor p1 = gesturePointers.get(1);
+
+        if (p0.getTouchDownType() == TouchDownType.SELECTED ||
+                p1.getTouchDownType() == TouchDownType.SELECTED)
+            return;
 
         ArrayList<float[]> p0h = p0.getHistory();
         ArrayList<float[]> p1h = p1.getHistory();
@@ -525,10 +575,10 @@ public class DrawView extends View {
                              final int textColor,
                              final String text) {
         EditText ed = new EditText(this.getContext());
-        ed.setLayoutParams(new RelativeLayout.LayoutParams(
-                RelativeLayout.LayoutParams.MATCH_PARENT,
-                RelativeLayout.LayoutParams.MATCH_PARENT
-        ));
+//        ed.setLayoutParams(new RelativeLayout.LayoutParams(
+//                RelativeLayout.LayoutParams.MATCH_PARENT,
+//                RelativeLayout.LayoutParams.MATCH_PARENT
+//        ));
         ed.setVisibility(View.VISIBLE);
         ed.setFocusable(true);
         ed.setTextIsSelectable(true);
@@ -569,6 +619,26 @@ public class DrawView extends View {
             }
         }
         return touchDownType;
+    }
+
+    // FIXME: conditions might have to be more strict to avoid conflict with hold+tap->multiselect
+    private boolean isCopyPaste() {
+        // Sanity check
+        if (gesturePointers.size() != 2)
+            throw new IllegalStateException("DrawView: isCopyPaste(): " +
+                    "copy/paste should be invoke with 2 fingers");
+        PointerDescriptor p0 = gesturePointers.get(0);
+        PointerDescriptor p1 = gesturePointers.get(0);
+        if (p0.getTouchDownType() == TouchDownType.SELECTED &&
+            p1.getTouchDownType() == TouchDownType.SELECTED &&
+            p0.getContainingObjIndex() == p1.getContainingObjIndex() &&
+//            p0.getDeltaDown() <= TAP_MOVE_DISTANCE_TOLERANCE &&
+            p0.getDownDuration() > TAP_WINDOW &&
+            p1.getDownDuration() > TAP_WINDOW) {
+            p0.setTouchDownType(TouchDownType.UNSELECTED);
+            return true;
+        }
+        return false;
     }
 
     private boolean isTap(PointerDescriptor p) {
