@@ -184,28 +184,9 @@ public class DrawView extends View {
                 gesturePointers.get(0).setTouchDownType(touchDownType);
                 gesturePointers.get(0).setContainingObjIndex(containingObjIndex);
 
-//                clearEditingFocus();
-//
-//                // Enter edit mode
-//                if (touchDownType == TouchDownType.EDITTEXT) {
-//                    EditText ed = (EditText) noteObjects.get(containingObjIndex).getNoteObj();
-//                    deselectAll();
-//                    ed.requestFocus();
-//                    editingBoxIndex = containingObjIndex;
-//                    break;
-//                }
-//
-//                editingBoxIndex = -1;
-//                if (touchDownType != TouchDownType.WHITESPACE) {
-//                    dragStart(ptrId, touchDownType == TouchDownType.UNSELECTED);
-//                } else {
-//
-//                }
                 if (touchDownType != TouchDownType.WHITESPACE &&
                     touchDownType != TouchDownType.EDITTEXT){
                     dragStart(ptrId, touchDownType==TouchDownType.UNSELECTED);
-                    //no keyboard during dragging
-                    closeKeyboard();
                 }
                 break;
 
@@ -259,17 +240,6 @@ public class DrawView extends View {
                     handleTap(event);
             case MotionEvent.ACTION_CANCEL:
                 teardown();
-                //restore keyboard at the end of dragging
-                // FIXME:
-                //  1. end of dragging should be in dragEnd()
-                //  2. shouldn't edit mode be cancelled when in dragging?
-//                for (NoteObjectWrap w :noteObjects) {
-//                    if (w.getNoteObj() instanceof EditText){
-//                        if (((EditText) w.getNoteObj()).hasFocus()){
-//                            showKeyboard();
-//                        }
-//                    }
-//                }
                 break;
         }
 
@@ -370,6 +340,7 @@ public class DrawView extends View {
 
     private void dragStart(final int ptrId, boolean toDragAnUnselected) {
         isDragging = true;
+        exitEditMode();
         if (toDragAnUnselected) {
             deselectAll();
             select(containingObjIndex);
