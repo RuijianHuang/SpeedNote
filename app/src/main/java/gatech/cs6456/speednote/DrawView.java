@@ -114,7 +114,7 @@ public class DrawView extends View {
                 paint.setColor(stk.color);
                 paint.setStrokeWidth(stk.strokeWidth);
                 if (objWrap.isSelected())
-                    paint.setPathEffect(new DashPathEffect(new float[] {20f, ((float) stk.strokeWidth)*1.5f}, 0f));
+                    paint.setPathEffect(new DashPathEffect(new float[] {20f, stk.strokeWidth*1.3f}, 0f));
                 else
                     paint.setPathEffect(new PathEffect());
                 uiCanvas.drawPath(stk.path, paint);
@@ -156,17 +156,18 @@ public class DrawView extends View {
         final int ptrIndex = event.getActionIndex();
         final int ptrId = event.getPointerId(ptrIndex);
         final int ptrType = event.getToolType(ptrIndex);
-        final float x = event.getX(event.getActionIndex());
-        final float y = event.getY(event.getActionIndex());
+        final float x = event.getX(ptrIndex);
+        final float y = event.getY(ptrIndex);
         TouchDownType touchDownType;
 
-        if (ptrCount == 1 && ptrType == MotionEvent.TOOL_TYPE_STYLUS) {
+        updateGesturePointers(event);
+        if (gesturePointers.size() == 1 && ptrType == MotionEvent.TOOL_TYPE_STYLUS) {
+            printAllPtrs(event);
             deselectAll();
             draw(event);
             return true;
         }
 
-        updateGesturePointers(event);
         // Drag:
         //      if 1st contact pt is in one of the selected
         //          drag all the selected
@@ -191,18 +192,22 @@ public class DrawView extends View {
                 break;
 
             case MotionEvent.ACTION_POINTER_DOWN:
+                dragEnd();
                 touchDownType = checkTouchDownType(x, y);
                 gesturePointers.get(event.getActionIndex()).setTouchDownType(touchDownType);
                 gesturePointers.get(event.getActionIndex()).setContainingObjIndex(containingObjIndex);
                 break;
 
             case MotionEvent.ACTION_MOVE:
-                if (isDragging) dragMove();
-                // FIXME: temporal deselect logic for focus and keyboard?
+                if (isDragging)
+                    dragMove();
+
+                if (gesturePointers.size() == 2)
+                    handleScaleByPinching();
                 break;
 
             case MotionEvent.ACTION_POINTER_UP:
-                PointerDescriptor upPtr = gesturePointers.get(event.getActionIndex());
+                PointerDescriptor upPtr = gesturePointers.get(ptrIndex);
                 PointerDescriptor primaryPtr = gesturePointers.get(0);
 
                 // Primary hold + up finger tap
@@ -223,20 +228,14 @@ public class DrawView extends View {
                         deselect(upPtr.getContainingObjIndex());
                 }
 
-                int deadPtrIndex = -1;
-                for (int i = 0; i < gesturePointers.size(); i++) {
-                    if (gesturePointers.get(i).getID() ==
-                            event.getPointerId(event.getActionIndex())) {
-                        deadPtrIndex = i;
-                        break;
-                    }
-                }
-                gesturePointers.remove(deadPtrIndex);
+                // Update gesturePointers: remove upPtr
+                gesturePointers.remove(upPtr);
                 break;
 
             // ACTION_UP falls through to teardown in CANCEL
             case MotionEvent.ACTION_UP:
-                if (isTap(gesturePointers.get(0)))
+                if (event.getToolType(ptrIndex) == MotionEvent.TOOL_TYPE_FINGER &&
+                    isTap(gesturePointers.get(0)))
                     handleTap(event);
             case MotionEvent.ACTION_CANCEL:
                 teardown();
@@ -244,12 +243,8 @@ public class DrawView extends View {
         }
 
         // FIXME: DEBUG: print all ptrs
-        if (event.getActionMasked() != MotionEvent.ACTION_MOVE) {
-            String actionLogStr = "Event: " + MotionEvent.actionToString(event.getActionMasked()) + "\n";
-            for (PointerDescriptor p: gesturePointers)
-                actionLogStr += p.toString();
-            Log.d(LOG_TAG, actionLogStr);
-        }
+        if (event.getActionMasked() != MotionEvent.ACTION_MOVE)
+            printAllPtrs(event);
         return true;
     }
 
@@ -271,15 +266,19 @@ public class DrawView extends View {
                 break;
             case MotionEvent.ACTION_MOVE:
             case MotionEvent.ACTION_POINTER_UP:
-                for (PointerDescriptor p: gesturePointers)
-                    if (p.getID() == event.getPointerId(event.getActionIndex()))
-                        p.update(event);
+                for (PointerDescriptor p: gesturePointers) {
+                    int index = event.findPointerIndex(p.getID());
+                    p.update(event);
+                }
                 break;
             case MotionEvent.ACTION_UP:
                 if (gesturePointers.size() != 1)
                     throw new IllegalStateException("DrawView: updateGesturePointers: " +
                             "size of gesturePointers should be 1 upon ACTION_UP");
-                gesturePointers.get(0).update(event);
+                if (gesturePointers.get(0).getToolType() == MotionEvent.TOOL_TYPE_STYLUS)
+                    gesturePointers.remove(0);
+                else
+                    gesturePointers.get(0).update(event);
                 break;
         }
     }
@@ -288,6 +287,38 @@ public class DrawView extends View {
         gesturePointers.clear();
         containingObjIndex = -1;
         if (isDragging) dragEnd();
+    }
+
+    private void handleScaleByPinching() {
+        double currXDistance, currYDistance, lastXDistance, lastYDistance;
+        float[] p0LastPos, p1LastPos;
+        PointerDescriptor p0 = gesturePointers.get(0);
+        PointerDescriptor p1 = gesturePointers.get(1);
+
+        ArrayList<float[]> p0h = p0.getHistory();
+        ArrayList<float[]> p1h = p1.getHistory();
+        if (!p0.isUpdateConsumed()) {
+            p0LastPos = p0h.get(p0h.size()-2);
+            p0.setUpdateConsumed(true);
+        } else {
+            p0LastPos = p0h.get(p0h.size()-1);
+        }
+        if (!p1.isUpdateConsumed()) {
+            p1LastPos = p1h.get(p1h.size()-2);
+            p1.setUpdateConsumed(true);
+        } else {
+            p1LastPos = p1h.get(p1h.size()-1);
+        }
+        lastXDistance = Math.abs(p0LastPos[0] - p1LastPos[0]);
+        lastYDistance = Math.abs(p0LastPos[1] - p1LastPos[1]);
+        currXDistance = Math.abs(p0h.get(p0h.size()-1)[0] - p1h.get(p1h.size()-1)[0]);
+        currYDistance = Math.abs(p0h.get(p0h.size()-1)[1] - p1h.get(p1h.size()-1)[1]);
+
+        for (NoteObjectWrap objWrap: noteObjects) {
+            if (objWrap.isSelected())
+                objWrap.scale(currXDistance, lastXDistance, currYDistance, lastYDistance);
+        }
+        invalidate();
     }
 
     private void handleTap(MotionEvent event) {
@@ -573,5 +604,14 @@ public class DrawView extends View {
             if (n.isSelected())
                 numSelected++;
         return numSelected;
+
+    }
+
+    private void printAllPtrs(MotionEvent event) {
+        String divider = "===========================================================\n";
+        String actionLogStr = "Event: " + MotionEvent.actionToString(event.getActionMasked()) + "\n";
+        for (PointerDescriptor p: gesturePointers)
+            actionLogStr += p.toString();
+        Log.d(LOG_TAG, "\n" + divider + actionLogStr + divider);
     }
 }

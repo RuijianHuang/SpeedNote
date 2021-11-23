@@ -2,6 +2,8 @@ package gatech.cs6456.speednote;
 
 import android.view.MotionEvent;
 
+import java.util.ArrayList;
+
 public class PointerDescriptor {
     private final int ID;
     private final float downX, downY;
@@ -13,23 +15,34 @@ public class PointerDescriptor {
     private long downDuration;
     private TouchDownType touchDownType;
     private int containingObjIndex;
+    private final int toolType;
+    private final ArrayList<float[]> history;
+    private boolean updateConsumed;
 
 
     public PointerDescriptor(MotionEvent event) {
-        this.ID = event.getPointerId(event.getActionIndex());
+        final int ptrIndex = event.getActionIndex();
+        this.ID = event.getPointerId(ptrIndex);
         this.downTime = event.getEventTime();
         this.downDuration = 0;
-        this.downX = this.lastX = event.getX(event.getActionIndex());
-        this.downY = this.lastY = event.getY(event.getActionIndex());
+        this.downX = this.lastX = event.getX(ptrIndex);
+        this.downY = this.lastY = event.getY(ptrIndex);
         this.deltaDownX = this.deltaDownY = this.deltaLastX = this.deltaLastY = 0;
         this.deltaLast = this.deltaDown = 0;
         this.touchDownType = TouchDownType.UNDEFINED;
         this.containingObjIndex = -1;
+        this.toolType = event.getToolType(ptrIndex);
+        this.history = new ArrayList<>();
+        this.history.add(new float[] {this.downX, this.downY});
+        this.updateConsumed = true;
     }
 
     public void update(MotionEvent event) throws IllegalStateException {
-        final float currX = event.getX(event.getActionIndex());
-        final float currY = event.getY(event.getActionIndex());
+        final int index = event.findPointerIndex(getID());
+        final float currX = event.getX(index);
+        final float currY = event.getY(index);
+        if (currX == lastX && currY == lastY)
+            return;
         this.deltaLastX = currX - this.lastX;
         this.deltaLastY = currY - this.lastY;
         this.deltaDownX = currX - this.downX;
@@ -39,6 +52,10 @@ public class PointerDescriptor {
         this.lastX = currX;
         this.lastY = currY;
         this.downDuration = event.getEventTime() - this.downTime;
+        this.history.add(new float[] {currX, currY});
+        this.updateConsumed = false;
+        if (history.size() > 10)
+            this.history.remove(0);
     }
 
     public int getID() {
@@ -107,6 +124,22 @@ public class PointerDescriptor {
 
     public void setContainingObjIndex(int containingObjIndex) {
         this.containingObjIndex = containingObjIndex;
+    }
+
+    public int getToolType() {
+        return toolType;
+    }
+
+    public ArrayList<float[]> getHistory() {
+        return history;
+    }
+
+    public boolean isUpdateConsumed() {
+        return updateConsumed;
+    }
+
+    public void setUpdateConsumed(boolean updateConsumed) {
+        this.updateConsumed = updateConsumed;
     }
 
     public String toString() {

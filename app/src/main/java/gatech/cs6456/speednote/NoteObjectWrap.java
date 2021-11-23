@@ -9,6 +9,8 @@ public class NoteObjectWrap {
     private Object noteObj;
     private boolean isSelected;
     private final int CONTAIN_MARGIN = 30;
+    private final int MIN_WIDTH = 200;
+    private final int MIN_HEIGHT = 300;
 
     public NoteObjectWrap(Object noteObj) {
         this.noteObj = noteObj;
@@ -18,6 +20,26 @@ public class NoteObjectWrap {
             throw new IllegalArgumentException(
                     "NoteObjectWrap should only contain Stroke or EditText object"
             );
+    }
+
+    public void scale(final double currXDistance, final double lastXDistance,
+                      final double currYDistance, final double lastYDistance) {
+        if (noteObj instanceof Stroke) {
+            final double scaleFactor =
+                    Math.sqrt(Math.pow(currXDistance, 2) + Math.pow(currYDistance, 2)) -
+                    Math.sqrt(Math.pow(lastXDistance, 2) + Math.pow(lastYDistance, 2));
+            ((Stroke) noteObj).scaleBy(scaleFactor);
+        } else {
+            EditText ed = (EditText) noteObj;
+            double wOffset = currXDistance - lastXDistance;
+            double hOffset = currYDistance - lastYDistance;
+            int newW = Math.max(ed.getWidth() + (int) wOffset, MIN_WIDTH);
+            int newH = Math.max(ed.getHeight() + (int) hOffset, MIN_HEIGHT);
+            ed.setX(ed.getX() - (newW-ed.getWidth())/2);
+            ed.setY(ed.getY() - (newH-ed.getHeight())/2);
+            ed.setWidth(newW);
+            ed.setHeight(newH);
+        }
     }
 
     public void moveBy(final float dx, final float dy) {
