@@ -5,11 +5,13 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.DashPathEffect;
+import android.graphics.LinearGradient;
 import android.graphics.Matrix;
 import android.graphics.Path;
 import android.graphics.Paint;
 import android.graphics.PathEffect;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.os.Build;
 import android.text.InputType;
 import android.util.AttributeSet;
@@ -31,6 +33,7 @@ public class DrawView extends View {
     private static final int TAP_MOVE_DISTANCE_TOLERANCE = 30;
     private static final int TAP_COORDINATE_CALIBRATION = 15;
     private static final int WRAP_PADDING = 15;
+    private static final int DELETE_BOUNDARY = 300;
 
     private final ArrayList<NoteObjectWrap> noteObjects;
     private final ArrayList<PointerDescriptor> gesturePointers;
@@ -104,11 +107,21 @@ public class DrawView extends View {
         uiCanvas.concat(mMatrix);
 
         uiCanvas.drawColor(currBgColor);
+        if (isDragToDelete) {
+            paint.setColor(Color.RED);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setAlpha(150);
+            uiCanvas.drawRect(0, this.getHeight()-DELETE_BOUNDARY,
+                    this.getWidth(), this.getHeight(), paint);
+        } else {
+            paint.setAlpha(0xff);
+        }
 
         // These 2 lines 'make' all EditTexts viewable
         drawViewRelativeLayout.measure(uiCanvas.getWidth(), uiCanvas.getHeight());
         drawViewRelativeLayout.layout(50, 50, uiCanvas.getWidth(), uiCanvas.getHeight());
 
+        paint.setStyle(Paint.Style.STROKE);
         for (NoteObjectWrap objWrap: noteObjects) {
             if (objWrap.getNoteObj() instanceof Stroke) {
                 Stroke stk = (Stroke) objWrap.getNoteObj();
@@ -142,6 +155,8 @@ public class DrawView extends View {
     private boolean isDragging = false;
 
     private boolean isCopying = false;
+
+    private boolean isDragToDelete = false;
 
     // Index of the note object in noteObjects that contains the pointer
     private int containingObjIndex = -1;
@@ -431,15 +446,31 @@ public class DrawView extends View {
 
     private void dragMove() {
         PointerDescriptor primaryPtr = gesturePointers.get(0);
-        for (NoteObjectWrap objWrap: noteObjects)
+        for (NoteObjectWrap objWrap: noteObjects) {
             if (objWrap.isSelected())
                 objWrap.moveBy(primaryPtr.getDeltaLastX(),
-                               primaryPtr.getDeltaLastY());
+                        primaryPtr.getDeltaLastY());
+        }
+        if (primaryPtr.getLastY() > this.getHeight() - DELETE_BOUNDARY)
+            isDragToDelete = true;
+        else
+            isDragToDelete = false;
         invalidate();
     }
 
     private void dragEnd() {
         isDragging = false;
+        if (isDragToDelete) {
+            ArrayList<Integer> indexToRemove = new ArrayList<>();
+            for (int i = 0; i < noteObjects.size(); i++) {
+                if (noteObjects.get(i).isSelected())
+                    indexToRemove.add(i);
+            }
+            for (int i = indexToRemove.size()-1; i >= 0; i--)
+                noteObjects.remove((int)indexToRemove.get(i));
+            isDragToDelete = false;
+            invalidate();
+        }
     }
 
     private void select(final int index) {
