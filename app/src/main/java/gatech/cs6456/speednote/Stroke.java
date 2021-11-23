@@ -8,10 +8,10 @@ import androidx.annotation.RequiresApi;
 
 public class Stroke {
 
-    private final int MIN_STROKE_WIDTH = 10;
+    private final int MIN_STROKE_WIDTH = 1;
     private final int MAX_STROKE_WIDTH = 300;
     public int color;       // color of stroke
-    public int strokeWidth;       // width of stroke
+    public float strokeWidth;       // width of stroke
     public Path path;       // path of stroke drawn
     private PathMeasure pathMeasure;
 
@@ -24,7 +24,7 @@ public class Stroke {
     }
 
     public void scaleBy(final double scaleFactor) {
-        this.strokeWidth += scaleFactor;
+        this.strokeWidth += scaleFactor/10;
         this.strokeWidth = Math.max(this.strokeWidth, MIN_STROKE_WIDTH);
         this.strokeWidth = Math.min(this.strokeWidth, MAX_STROKE_WIDTH);
     }

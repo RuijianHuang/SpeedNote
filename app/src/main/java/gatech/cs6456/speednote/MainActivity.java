@@ -6,8 +6,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.util.Log;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewTreeObserver;
+import android.widget.EditText;
 import android.widget.ImageButton;
 
 import com.google.android.material.slider.RangeSlider;
@@ -31,10 +34,8 @@ public class MainActivity extends AppCompatActivity {
         btnColor = (ImageButton) findViewById(R.id.btn_color);
         btnStroke = (ImageButton) findViewById(R.id.btn_stroke);
 
-        // TODO: how to undo (both text box and strokes)?
         btnUndo.setOnClickListener(view -> drawView.undo());
 
-        // TODO: how to save (both text box and strokes)?
         btnSave.setOnClickListener(view -> System.out.println("trying to save"));
 
         // allow user to select color of the brush
@@ -69,7 +70,6 @@ public class MainActivity extends AppCompatActivity {
                 drawView.setCurrStrokeWidth((int) value)
         );
 
-        // FIXME: what is this
         // Pass the height and width of the custom view to the innit method of the DrawView obj
         ViewTreeObserver viewTreeObserver = drawView.getViewTreeObserver();
         viewTreeObserver.addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
@@ -81,5 +81,33 @@ public class MainActivity extends AppCompatActivity {
                 drawView.init(height, width);
             }
         });
+    }
+
+    //text edit
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DEL:
+                if (drawView.getBoxID()!=-1) {
+                    if (drawView.getNoteObjects().get(drawView.getBoxID()).getNoteObj() instanceof EditText) {
+                        EditText ed = (EditText) drawView.getNoteObjects().get(drawView.getBoxID()).getNoteObj();
+                        String text = ed.getText().toString();
+                        if (text.length()>0){
+                            ed.setText(text.substring(0, text.length()-1));
+                            drawView.invalidate();
+                        }
+                    }
+                }
+                break;
+            default:
+                if (drawView.getBoxID()!=-1) {
+                    if (drawView.getNoteObjects().get(drawView.getBoxID()).getNoteObj() instanceof EditText) {
+                        EditText ed = (EditText) drawView.getNoteObjects().get(drawView.getBoxID()).getNoteObj();
+                        ed.setText(ed.getText() + String.valueOf((char)event.getUnicodeChar()));
+                        drawView.invalidate();
+                    }
+                }
+        }
+        return super.onKeyUp(keyCode, event);
     }
 }

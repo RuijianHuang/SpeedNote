@@ -46,7 +46,6 @@ public class DrawView extends View {
     private Paint mBitmapPaint;     // FIXME: what is this?
     private final RelativeLayout drawViewRelativeLayout;
     private final Matrix mMatrix;
-    // new added instance for keyboard
     private final InputMethodManager imm;
     private boolean keyboard_status;
 
@@ -71,7 +70,9 @@ public class DrawView extends View {
         imm = (InputMethodManager) this.getContext()
                 .getSystemService(Context.INPUT_METHOD_SERVICE);
         keyboard_status = false;
+
     }
+
 
     // init bitmap, canvas, and attributes
     public void init(int height, int width) {
@@ -580,7 +581,17 @@ public class DrawView extends View {
         return Math.sqrt(Math.pow(x1-x2, 2) + Math.pow(y1-y2, 2));
     }
 
+
+
     // Below are getters and setters
+    public ArrayList<NoteObjectWrap> getNoteObjects() {
+        return this.noteObjects;
+    }
+
+    public int getBoxID() {
+        return this.editingBoxIndex;
+    }
+
     public Bitmap getBitmap() {     // FIXME: save?
         return this.bitmap;
     }
